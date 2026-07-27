@@ -66,6 +66,11 @@ RUN npm install -g \
     @openai/codex \
     @github/copilot
 
+# install rtk
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh \
+    | RTK_INSTALL_DIR=/usr/local/bin sh \
+    && rtk --version
+
 ENV DEBIAN_FRONTEND=dialog
 
 USER ${USERNAME}
