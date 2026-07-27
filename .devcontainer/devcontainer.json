@@ -1,0 +1,22 @@
+{
+    "name": "AI Devcontainer",
+    "image": "ghcr.io/erickuck/ai-devcontainer:latest",
+    "remoteUser": "eric",
+    "containerUser": "eric",
+    "updateRemoteUserUID": true,
+    "initializeCommand": "mkdir -p \"$HOME/.devcontainer\" && : > \"$HOME/.devcontainer/empty-gradle.properties\"",
+    "postCreateCommand": "git config --global core.autocrlf input && git config --global init.defaultBranch main",
+    "remoteEnv": {
+        "EDITOR": "vim",
+        "GH_TOKEN": "${localEnv:GH_TOKEN}"
+    },
+    "mounts": [
+        "source=${localEnv:HOME}/.claude,target=/home/eric/.claude,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.claude.json,target=/home/eric/.claude.json,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.config/opencode,target=/home/eric/.config/opencode,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.codex,target=/home/eric/.codex,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.gradle,target=/home/eric/.gradle,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.m2,target=/home/eric/.m2,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.devcontainer/empty-gradle.properties,target=/home/eric/.gradle/gradle.properties,type=bind,readonly"
+    ]
+}
