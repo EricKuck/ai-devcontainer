@@ -17,7 +17,7 @@
         "source=${localEnv:HOME}/.claude,target=/home/eric/.claude,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.claude.json,target=/home/eric/.claude.json,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.config/opencode,target=/home/eric/.config/opencode,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.local/share/opencode/auth.json,target=/home/eric/.local/share/opencode/auth.json,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.local/share/opencode,target=/home/eric/.local/share/opencode,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.codex,target=/home/eric/.codex,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.pi,target=/home/eric/.pi,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.gradle,target=/home/eric/.gradle,type=bind,consistency=cached",

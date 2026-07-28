@@ -3,6 +3,7 @@ set -euo pipefail
 
 mkdir -p \
     "$HOME/.pi/agent" \
+    "$HOME/.config/opencode" \
     "$HOME/.devcontainer" \
     "$HOME/.local/share/opencode"
 

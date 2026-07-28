@@ -7,4 +7,7 @@ git config --global init.defaultBranch main
 sudo chown "$(id -u):$(id -g)" \
     "$HOME/.local" \
     "$HOME/.local/share" \
-    "$HOME/.local/share/opencode"
+    "$HOME/.local/share/opencode" \
+    "$HOME/.config/opencode" \
+    "$HOME/.pi" \
+    "$HOME/.pi/agent"
