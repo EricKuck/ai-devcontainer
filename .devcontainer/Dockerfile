@@ -8,6 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
+    git-lfs \
     curl \
     ca-certificates \
     gnupg \
@@ -33,6 +34,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     file \
     sudo \
     && rm -rf /var/lib/apt/lists/*
+
+# initialize git-lfs
+RUN git lfs install --system
 
 RUN ln -s /usr/bin/fdfind /usr/local/bin/fd
 
