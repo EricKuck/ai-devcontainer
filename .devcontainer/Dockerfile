@@ -64,7 +64,8 @@ RUN npm install -g \
     @anthropic-ai/claude-code \
     opencode-ai \
     @openai/codex \
-    @github/copilot
+    @github/copilot \
+    @earendil-works/pi-coding-agent
 
 # install rtk
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh \

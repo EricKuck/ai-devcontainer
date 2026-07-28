@@ -4,8 +4,8 @@
     "remoteUser": "eric",
     "containerUser": "eric",
     "updateRemoteUserUID": true,
-    "initializeCommand": "mkdir -p \"$HOME/.devcontainer\" \"$HOME/.local/share/opencode\" && : > \"$HOME/.devcontainer/empty-gradle.properties\" && ( test -f \"$HOME/.local/share/opencode/auth.json\" || printf '{}' > \"$HOME/.local/share/opencode/auth.json\" ) && ( CRED=$(security find-generic-password -s 'Claude Code-credentials' -w 2>/dev/null) && [ -n \"$CRED\" ] && mkdir -p \"$HOME/.claude\" && printf '%s' \"$CRED\" > \"$HOME/.claude/.credentials.json\" && chmod 600 \"$HOME/.claude/.credentials.json\" ) || true",
-    "postCreateCommand": "git config --global core.autocrlf input && git config --global init.defaultBranch main && sudo chown $(id -u):$(id -g) \"$HOME/.local\" \"$HOME/.local/share\" \"$HOME/.local/share/opencode\"",
+    "initializeCommand": ".devcontainer/initialize.sh",
+    "postCreateCommand": ".devcontainer/post-create.sh",
     "remoteEnv": {
         "EDITOR": "vim",
         "GH_TOKEN": "${localEnv:GH_TOKEN}",
@@ -17,6 +17,7 @@
         "source=${localEnv:HOME}/.config/opencode,target=/home/eric/.config/opencode,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.local/share/opencode/auth.json,target=/home/eric/.local/share/opencode/auth.json,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.codex,target=/home/eric/.codex,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.pi,target=/home/eric/.pi,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.gradle,target=/home/eric/.gradle,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.m2,target=/home/eric/.m2,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.devcontainer/empty-gradle.properties,target=/home/eric/.gradle/gradle.properties,type=bind,readonly"
