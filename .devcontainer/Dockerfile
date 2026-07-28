@@ -32,6 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     less \
     tree \
     file \
+    ncurses-term \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
@@ -75,6 +76,17 @@ RUN npm install -g \
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh \
     | RTK_INSTALL_DIR=/usr/local/bin sh \
     && rtk --version
+
+# install Ghostty terminfo so TERM=xterm-ghostty is recognized over SSH
+COPY ghostty.terminfo /tmp/ghostty.terminfo
+RUN tic -x /tmp/ghostty.terminfo && rm /tmp/ghostty.terminfo
+
+# preserve TERM and TERMINFO through sudo so programs run under sudo
+# (e.g. sudo vim) still recognise xterm-ghostty
+RUN printf '%s\n' \
+    'Defaults env_keep += "TERM"' \
+    'Defaults env_keep += "TERMINFO"' \
+    >> /etc/sudoers.d/10-ghostty && chmod 440 /etc/sudoers.d/10-ghostty
 
 ENV DEBIAN_FRONTEND=dialog
 

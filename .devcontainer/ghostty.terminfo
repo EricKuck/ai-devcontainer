@@ -1,0 +1,47 @@
+# Ghostty terminal description (TERM=xterm-ghostty)
+#
+# Ghostty sets TERM=xterm-ghostty, which SSH forwards to remote hosts. If the
+# remote host lacks this entry, readline/ncurses miscompute cursor movement and
+# you see doubled / overlapping characters while typing (the command still runs;
+# only the display is wrong). Compiling this source with `tic -x` fixes it.
+#
+# Source: upstream ncurses terminfo database (invisible-island terminfo.src)
+# with `xterm-ghostty` added as an alias so a forwarded TERM=xterm-ghostty
+# resolves. The `use=` building blocks (ansi+*, xterm+*, ecma+*, ...) ship
+# with ncurses-base / ncurses-term on Ubuntu.
+#
+ghostty|xterm-ghostty|Ghostty terminal emulator,
+	am, bce, km, mc5i, mir, msgr, npc, xenl, AX, XT,
+	cols#80, lines#24, pairs#0x7fff,
+	acsc=++\,\,--..00``aaffgghhiijjkkllmmnnooppqqrrssttuuvvwwxxy
+	     yzz{{||}}~~,
+	bel=^G, bold=\E[1m, clear=\E[H\E[2J,
+	cnorm=\E[?12l\E[?25h, cr=\r, cub1=^H, cud1=\n,
+	cvvis=\E[?12;25h, dim=\E[2m, ech=\E[%p1%dX, el1=\E[1K,
+	flash=\E[?5h$<100/>\E[?5l, ind=\n, invis=\E[8m, kbs=^?,
+	kcbt=\E[Z, kend=\EOF, kent=\EOM, op=\E[39;49m, rev=\E[7m,
+	ri=\EM, rmam=\E[?7l, rmcup=\E[?1049l, rmkx=\E[?1l\E>,
+	rmso=\E[27m, rmul=\E[24m, rs1=\E]\E\\\Ec,
+	setab=\E[%?%p1%{8}%<%t4%p1%d%e%p1%{16}%<%t10%p1%{8}%-%d%e48;
+	      5;%p1%d%;m,
+	setaf=\E[%?%p1%{8}%<%t3%p1%d%e%p1%{16}%<%t9%p1%{8}%-%d%e38;5
+	      ;%p1%d%;m,
+	sgr=%?%p9%t\E(0%e\E(B%;\E[0%?%p6%t;1%;%?%p2%t;4%;%?%p1%p3%|
+	    %t;7%;%?%p5%t;2%;%?%p7%t;8%;m,
+	sgr0=\E(B\E[m, smam=\E[?7h, smcup=\E[?1049h,
+	smkx=\E[?1h\E=, E3=\E[3J, Ms=\E]52;%p1%s;%p2%s\007,
+	Se=\E[2 q, Smulx=\E[4:%p1%dm, Ss=\E[%p1%d q,
+	rv=\E\\[>[0-9];[0-9];[0-9]c,
+	xr=\EP>\\|ghostty %[0-9.]([[:print:]])*\E\\\\,
+	use=linux+kbs, use=ansi+apparrows, use=ansi+csr,
+	use=ansi+cup, use=ansi+enq, use=ansi+erase, use=ansi+idc,
+	use=ansi+idl, use=ansi+inittabs, use=ansi+local,
+	use=ansi+rca2, use=ansi+rep, use=ansi+sgrso,
+	use=ansi+sgrul, use=ansi+tabs, use=ecma+index,
+	use=ecma+italics, use=ecma+strikeout,
+	use=report+version, use=vt220+cvis,
+	use=xterm+256color2, use=xterm+acs,
+	use=xterm+alt+title, use=bracketed+paste,
+	use=kitty+setal, use=vt420+lrmm, use=xterm+focus,
+	use=xterm+pce2, use=xterm+pcc2, use=xterm+pcf2,
+	use=xterm+sm+1006, use=xterm+sl-twm,
