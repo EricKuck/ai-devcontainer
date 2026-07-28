@@ -1,6 +1,8 @@
 {
     "name": "AI Devcontainer",
     "image": "ghcr.io/erickuck/ai-devcontainer:latest",
+    "workspaceFolder": "${localWorkspaceFolder}",
+    "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind,consistency=cached",
     "remoteUser": "eric",
     "containerUser": "eric",
     "updateRemoteUserUID": true,
