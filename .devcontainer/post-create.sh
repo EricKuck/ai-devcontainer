@@ -9,5 +9,6 @@ sudo chown "$(id -u):$(id -g)" \
     "$HOME/.local/share" \
     "$HOME/.local/share/opencode" \
     "$HOME/.config/opencode" \
+    "$HOME/.gradle" \
     "$HOME/.pi" \
     "$HOME/.pi/agent"

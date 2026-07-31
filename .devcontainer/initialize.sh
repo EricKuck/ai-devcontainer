@@ -4,10 +4,8 @@ set -euo pipefail
 mkdir -p \
     "$HOME/.pi/agent" \
     "$HOME/.config/opencode" \
-    "$HOME/.devcontainer" \
+    "$HOME/.gradle/caches/modules-2" \
     "$HOME/.local/share/opencode"
-
-: > "$HOME/.devcontainer/empty-gradle.properties"
 
 if [ ! -f "$HOME/.local/share/opencode/auth.json" ]; then
     printf '{}' > "$HOME/.local/share/opencode/auth.json"

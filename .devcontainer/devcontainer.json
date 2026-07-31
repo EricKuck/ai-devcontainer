@@ -1,27 +1,28 @@
 {
-    "name": "AI Devcontainer",
-    "image": "ghcr.io/erickuck/ai-devcontainer:latest",
-    "workspaceFolder": "${localWorkspaceFolder}",
-    "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind,consistency=cached",
-    "remoteUser": "eric",
-    "containerUser": "eric",
-    "updateRemoteUserUID": true,
-    "initializeCommand": ".devcontainer/initialize.sh",
-    "postCreateCommand": ".devcontainer/post-create.sh",
-    "remoteEnv": {
-        "EDITOR": "vim",
-        "GH_TOKEN": "${localEnv:GH_TOKEN}",
-        "OPENCODE_PERMISSION": "{\"edit\":\"allow\",\"bash\":\"allow\",\"webfetch\":\"allow\"}"
-    },
-    "mounts": [
-        "source=${localEnv:HOME}/.claude,target=/home/eric/.claude,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.claude.json,target=/home/eric/.claude.json,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.config/opencode,target=/home/eric/.config/opencode,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.local/share/opencode,target=/home/eric/.local/share/opencode,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.codex,target=/home/eric/.codex,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.pi,target=/home/eric/.pi,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.gradle,target=/home/eric/.gradle,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.m2,target=/home/eric/.m2,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.devcontainer/empty-gradle.properties,target=/home/eric/.gradle/gradle.properties,type=bind,readonly"
-    ]
+  "name": "AI Devcontainer",
+  "image": "ghcr.io/erickuck/ai-devcontainer:latest",
+  "workspaceFolder": "${localWorkspaceFolder}",
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind,consistency=cached",
+  "remoteUser": "eric",
+  "containerUser": "eric",
+  "updateRemoteUserUID": true,
+  "initializeCommand": ".devcontainer/initialize.sh",
+  "postCreateCommand": ".devcontainer/post-create.sh",
+  "remoteEnv": {
+    "EDITOR": "vim",
+    "GH_TOKEN": "${localEnv:GH_TOKEN}",
+    "GRADLE_RO_DEP_CACHE": "/home/eric/.gradle-readonly",
+    "OPENCODE_PERMISSION": "{\"edit\":\"allow\",\"bash\":\"allow\",\"webfetch\":\"allow\"}"
+  },
+  "mounts": [
+    "source=${localEnv:HOME}/.claude,target=/home/eric/.claude,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.claude.json,target=/home/eric/.claude.json,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/opencode,target=/home/eric/.config/opencode,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.local/share/opencode,target=/home/eric/.local/share/opencode,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.codex,target=/home/eric/.codex,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.pi,target=/home/eric/.pi,type=bind,consistency=cached",
+    "source=ai-devcontainer-gradle,target=/home/eric/.gradle,type=volume",
+    "source=${localEnv:HOME}/.gradle/caches/modules-2,target=/home/eric/.gradle-readonly/modules-2,type=bind,readonly,consistency=cached",
+    "source=${localEnv:HOME}/.m2,target=/home/eric/.m2,type=bind,consistency=cached"
+  ]
 }
