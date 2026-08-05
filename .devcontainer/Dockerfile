@@ -38,12 +38,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fd-find \
     fzf \
     less \
+    locales \
     tree \
     file \
     ncurses-term \
     sudo \
+    tzdata \
     && ln -s "$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")" /opt/java \
     && rm -rf /var/lib/apt/lists/*
+
+ARG TZ=America/New_York
+RUN locale-gen en_US.UTF-8 \
+    && update-locale LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8 \
+    && ln -snf "/usr/share/zoneinfo/${TZ}" /etc/localtime \
+    && echo "${TZ}" > /etc/timezone
 
 # initialize git-lfs
 RUN git lfs install --system
@@ -114,7 +122,11 @@ RUN printf '%s\n' \
     'Defaults env_keep += "TERMINFO"' \
     >> /etc/sudoers.d/10-ghostty && chmod 440 /etc/sudoers.d/10-ghostty
 
-ENV DEBIAN_FRONTEND=dialog
+ENV DEBIAN_FRONTEND=dialog \
+    LANG=en_US.UTF-8 \
+    LANGUAGE=en_US:en \
+    LC_ALL=en_US.UTF-8 \
+    TZ=${TZ}
 
 USER ${USERNAME}
 WORKDIR /home/${USERNAME}
