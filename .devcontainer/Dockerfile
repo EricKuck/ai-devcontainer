@@ -26,13 +26,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     openjdk-17-jdk-headless \
+    openjdk-21-jdk-headless \
     pkg-config \
     python3 \
     python3-pip \
     python3-venv \
     openssh-client \
     iputils-ping \
-    tmux \
     vim \
     ripgrep \
     fd-find \
@@ -43,6 +43,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     file \
     ncurses-term \
     sudo \
+    imagemagick \
+    webp \
+    ffmpeg \
     tzdata \
     && ln -s "$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")" /opt/java \
     && rm -rf /var/lib/apt/lists/*
