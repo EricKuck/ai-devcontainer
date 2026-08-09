@@ -1,0 +1,636 @@
+#!/usr/bin/env python3
+"""Container-side stand-in for Supacode's macOS `supacode` CLI.
+
+The real CLI ships as a macOS binary inside the app bundle. It reaches the app
+over a unix socket, which `aidev` reverse-forwards into the container, so this
+speaks the same JSON wire protocol against $SUPACODE_BRIDGE_SOCKET and builds
+the same supacode:// deeplinks.
+
+The bridge path deliberately does NOT travel as SUPACODE_SOCKET_PATH: the agent
+hooks append the agent's pid to their OSC presence signal whenever that variable
+is set, and the app would probe a container pid against the host process table.
+"""
+
+import argparse
+import json
+import os
+import re
+import socket
+import sys
+import uuid
+from urllib.parse import quote, unquote
+
+DEFAULT_TIMEOUT = 180
+# The app's own timeout reply has to land before our read gives up on it.
+GRACE_SECONDS = 5
+
+WORKTREE_STATUSES = ("main", "pinned", "unpinned", "archived")
+COLOR_NAMES = ("red", "orange", "yellow", "green", "teal", "blue", "purple")
+SETTINGS_SECTIONS = (
+    "general", "notifications", "worktrees", "developer",
+    "shortcuts", "scripts", "updates", "github",
+)
+
+# Foundation's urlQueryAllowed minus `&` and `=`, which would otherwise forge
+# query separators. Python never escapes alphanumerics or `-._~`, so those are
+# implied rather than listed.
+QUERY_SAFE = "!$'()*+,;:@/?"
+# urlPathAllowed minus `/`, matching how the app percent-encodes repo ids.
+REPO_ID_SAFE = "!$&'()*+,;=:@"
+
+UUID_RE = re.compile(r"\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+                     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\Z")
+
+
+class SupacodeError(Exception):
+    pass
+
+
+# ------------------------------------------------------------------ transport
+
+
+def bridge_path():
+    path = os.environ.get("SUPACODE_BRIDGE_SOCKET")
+    if not path:
+        raise SupacodeError(
+            "SUPACODE_BRIDGE_SOCKET is unset, so this container has no bridge to "
+            "the Supacode app. Start the session with `aidev` from a Supacode "
+            "terminal on the host."
+        )
+    return path
+
+
+def send(payload, timeout):
+    path = bridge_path()
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(timeout + GRACE_SECONDS if timeout > 0 else None)
+    try:
+        try:
+            sock.connect(path)
+        except OSError as err:
+            raise SupacodeError(
+                f"Cannot reach Supacode at {path}: {err}. The ssh reverse forward "
+                "is not up — check that the app is running on the host."
+            ) from err
+
+        sock.sendall(json.dumps(payload).encode())
+        # The app reads until EOF, so the write side must close or both ends block.
+        sock.shutdown(socket.SHUT_WR)
+
+        chunks = []
+        while True:
+            try:
+                chunk = sock.recv(4096)
+            except socket.timeout:
+                raise SupacodeError("Timed out waiting for a response from Supacode.")
+            if not chunk:
+                break
+            chunks.append(chunk)
+    finally:
+        sock.close()
+
+    raw = b"".join(chunks)
+    if not raw:
+        raise SupacodeError("Empty response from Supacode.")
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        raise SupacodeError("Malformed response from Supacode.")
+    if not isinstance(parsed, dict) or not parsed.get("ok"):
+        message = parsed.get("error") if isinstance(parsed, dict) else None
+        raise SupacodeError(message or "Command failed.")
+    return parsed
+
+
+def dispatch(url, args):
+    timeout = max(args.timeout, 0)
+    url += ("&" if "?" in url else "?") + f"timeout={timeout}"
+    return send({"deeplink": url}, timeout).get("id")
+
+
+def query(resource, args, **params):
+    payload = {"query": resource}
+    payload.update({k: v for k, v in params.items() if v is not None})
+    data = send(payload, max(args.timeout, 0)).get("data")
+    if not isinstance(data, list):
+        raise SupacodeError("Unexpected data format in query response.")
+    return data
+
+
+# -------------------------------------------------------------------- helpers
+
+
+def q(value):
+    return quote(value, safe=QUERY_SAFE)
+
+
+def with_params(url, pairs):
+    parts = [f"{key}={value}" for key, value in pairs if value is not None]
+    return f"{url}?{'&'.join(parts)}" if parts else url
+
+
+def backgrounded(url, args):
+    if not getattr(args, "background", False):
+        return url
+    return url + ("&" if "?" in url else "?") + "background=true"
+
+
+def resolve(explicit, var, flag, label):
+    value = explicit or os.environ.get(var)
+    if not value:
+        raise SupacodeError(
+            f"Missing {label} ID. Pass {flag} <id> or run inside a Supacode "
+            f"terminal (${var})."
+        )
+    return value
+
+
+def worktree_id(args):
+    return resolve(args.worktree, "SUPACODE_WORKTREE_ID", "-w", "worktree")
+
+
+def tab_id(args):
+    return resolve(args.tab, "SUPACODE_TAB_ID", "-t", "tab")
+
+
+def surface_id(args):
+    return resolve(args.surface, "SUPACODE_SURFACE_ID", "-s", "surface")
+
+
+def repo_id(args):
+    if not args.repo:
+        return resolve(None, "SUPACODE_REPO_ID", "-r", "repo")
+    decoded = unquote(args.repo)
+    if not decoded.endswith("/"):
+        decoded += "/"
+    return quote(decoded, safe=REPO_ID_SAFE)
+
+
+def script_id(raw):
+    if not UUID_RE.match(raw):
+        raise SupacodeError(
+            "Invalid --script value: expected a UUID. Run "
+            "`supacode worktree script list` to list script IDs."
+        )
+    return raw.upper()
+
+
+def validated_color(raw):
+    lowered = raw.lower()
+    if lowered == "none" or lowered in COLOR_NAMES:
+        return lowered
+    digits = raw[1:]
+    if raw.startswith("#") and len(digits) in (6, 8) and all(
+        c in "0123456789abcdefABCDEF" for c in digits
+    ):
+        return raw.upper()
+    raise SupacodeError(
+        f"Invalid color value. Expected {'|'.join(COLOR_NAMES)}, #RRGGBB[AA], or none."
+    )
+
+
+def column(value):
+    return value.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+
+
+def emit(text, focused):
+    # Underline only on a tty so a piped id stays clean.
+    print(f"\033[4m{text}\033[0m" if focused and sys.stdout.isatty() else text)
+
+
+def print_ids(items, focused_only):
+    for item in items:
+        is_focused = bool(item.get("focused"))
+        if focused_only and not is_focused:
+            continue
+        emit(column(item.get("id", "")), is_focused)
+
+
+# ------------------------------------------------------------------- commands
+
+
+def cmd_open(args):
+    dispatch("supacode://", args)
+
+
+def cmd_socket(args):
+    path = bridge_path()
+    ok = os.path.exists(path)
+    print(f"{path}\t{'connected' if ok else 'missing'}")
+    if not ok:
+        raise SupacodeError("The bridge socket does not exist in this container.")
+
+
+def cmd_deeplink(args):
+    if not args.url.startswith("supacode://"):
+        raise SupacodeError("Deeplinks must start with supacode://")
+    dispatch(args.url, args)
+
+
+def cmd_worktree_list(args):
+    if args.status and args.not_archived:
+        raise SupacodeError("Pass either --status or --not-archived, not both.")
+    wanted = set()
+    if args.status:
+        wanted = {s.strip() for s in args.status.split(",") if s.strip()}
+        unknown = wanted - set(WORKTREE_STATUSES)
+        if not wanted or unknown:
+            raise SupacodeError(
+                f"--status needs at least one of: {'|'.join(WORKTREE_STATUSES)}."
+            )
+
+    items = query("worktrees", args)
+    needs_status = args.with_status or args.not_archived or bool(wanted)
+    if needs_status and any("status" not in item for item in items):
+        raise SupacodeError(
+            "The running Supacode app does not report worktree status. Restart "
+            "Supacode to pick up the update."
+        )
+
+    for item in items:
+        is_focused = bool(item.get("focused"))
+        if args.focused and not is_focused:
+            continue
+        status = item.get("status", "")
+        if wanted and status not in wanted:
+            continue
+        if args.not_archived and status == "archived":
+            continue
+        row = column(item.get("id", ""))
+        if args.with_status:
+            row += f"\t{column(status)}"
+        emit(row, is_focused)
+
+
+def cmd_worktree_status(args):
+    items = query("worktreeStatus", args, worktreeID=worktree_id(args))
+    if not items or "status" not in items[0]:
+        raise SupacodeError("Worktree status query returned no rows.")
+    for key in ("status", "archived", "focused"):
+        print(f"{key}={column(items[0].get(key, ''))}")
+
+
+def cmd_worktree_focus(args):
+    dispatch(f"supacode://worktree/{worktree_id(args)}", args)
+
+
+def worktree_action(action):
+    def run(args):
+        dispatch(backgrounded(
+            f"supacode://worktree/{worktree_id(args)}/{action}", args), args)
+    return run
+
+
+def script_action(action, fallback):
+    def run(args):
+        wid = worktree_id(args)
+        if not args.script:
+            url = f"supacode://worktree/{wid}/{fallback}"
+        else:
+            url = f"supacode://worktree/{wid}/script/{script_id(args.script)}/{action}"
+        dispatch(backgrounded(url, args), args)
+    return run
+
+
+def cmd_worktree_appearance(args):
+    wid = worktree_id(args)
+    if args.title is None and args.color is None:
+        items = query("worktreeAppearance", args, worktreeID=wid)
+        if not items:
+            raise SupacodeError("Worktree appearance query returned no rows.")
+        item = items[0]
+        print(f"title={column(item.get('title', ''))}")
+        print(f"color={column(item.get('color') or 'none')}")
+        if "displayTitle" in item:
+            print(f"displayTitle={column(item['displayTitle'])}")
+        return
+
+    color = validated_color(args.color) if args.color is not None else None
+    dispatch(with_params(
+        f"supacode://worktree/{wid}/appearance",
+        [("title", q(args.title) if args.title is not None else None),
+         ("color", q(color) if color is not None else None)],
+    ), args)
+
+
+def cmd_worktree_script_list(args):
+    for item in query("scripts", args, worktreeID=worktree_id(args)):
+        row = "\t".join(column(item.get(key, "")) for key in ("id", "kind"))
+        name = item.get("displayName") or item.get("name") or ""
+        emit(f"{row}\t{column(name)}", bool(item.get("running")))
+
+
+def cmd_tab_list(args):
+    print_ids(query("tabs", args, worktreeID=worktree_id(args)), args.focused)
+
+
+def cmd_tab_focus(args):
+    dispatch(f"supacode://worktree/{worktree_id(args)}/tab/{tab_id(args)}", args)
+
+
+def cmd_tab_new(args):
+    if args.title is not None and not args.title.strip():
+        raise SupacodeError(
+            "--title cannot be blank. Omit it to keep the terminal title.")
+    # The id is minted here, not read back from the reply, so the caller has it
+    # even when the app answers without one.
+    new_id = args.id or str(uuid.uuid4()).upper()
+    dispatch(backgrounded(with_params(
+        f"supacode://worktree/{worktree_id(args)}/tab/new",
+        [("input", q(args.input) if args.input else None),
+         ("id", new_id),
+         ("title", q(args.title) if args.title else None)],
+    ), args), args)
+    print(new_id)
+
+
+def cmd_tab_rename(args):
+    dispatch(
+        f"supacode://worktree/{worktree_id(args)}/tab/{tab_id(args)}"
+        f"/rename?title={q(args.title)}", args)
+
+
+def cmd_tab_close(args):
+    dispatch(backgrounded(
+        f"supacode://worktree/{worktree_id(args)}/tab/{tab_id(args)}/destroy",
+        args), args)
+
+
+def surface_base(args):
+    return (f"supacode://worktree/{worktree_id(args)}/tab/{tab_id(args)}"
+            f"/surface/{surface_id(args)}")
+
+
+def cmd_surface_list(args):
+    items = query("surfaces", args,
+                  worktreeID=worktree_id(args), tabID=tab_id(args))
+    print_ids(items, args.focused)
+
+
+def cmd_surface_focus(args):
+    dispatch(with_params(
+        surface_base(args),
+        [("input", q(args.input) if args.input else None)]), args)
+
+
+def cmd_surface_split(args):
+    direction = None
+    if args.direction:
+        direction = {"h": "horizontal", "v": "vertical"}.get(
+            args.direction, args.direction)
+        if direction not in ("horizontal", "vertical"):
+            raise SupacodeError("--direction expects horizontal (h) or vertical (v).")
+    new_id = args.id or str(uuid.uuid4()).upper()
+    dispatch(backgrounded(with_params(
+        f"{surface_base(args)}/split",
+        [("direction", direction),
+         ("input", q(args.input) if args.input else None),
+         ("id", new_id)],
+    ), args), args)
+    print(new_id)
+
+
+def cmd_surface_close(args):
+    dispatch(backgrounded(f"{surface_base(args)}/destroy", args), args)
+
+
+def cmd_repo_list(args):
+    for item in query("repos", args):
+        print(column(item.get("id", "")))
+
+
+def cmd_repo_open(args):
+    dispatch(f"supacode://repo/open?path={q(args.path)}", args)
+
+
+def cmd_repo_worktree_new(args):
+    if args.upstream is not None and args.no_upstream:
+        raise SupacodeError("--upstream and --no-upstream are mutually exclusive.")
+    if args.upstream is not None and not args.upstream.strip():
+        raise SupacodeError(
+            "--upstream requires a branch name; use --no-upstream to clear tracking.")
+    # An empty upstream means "no upstream"; omitted leaves tracking to Git.
+    upstream = "" if args.no_upstream else args.upstream
+    created = dispatch(backgrounded(with_params(
+        f"supacode://repo/{repo_id(args)}/worktree/new",
+        [("branch", q(args.branch) if args.branch else None),
+         ("base", q(args.base) if args.base else None),
+         ("upstream", q(upstream) if upstream is not None else None),
+         ("fetch", "true" if args.fetch else None),
+         ("name", q(args.name) if args.name else None),
+         ("location", q(args.location) if args.location else None),
+         ("pin", "true" if args.pin else None)],
+    ), args), args)
+    if created:
+        print(created)
+
+
+def cmd_settings(args):
+    section = getattr(args, "section", None)
+    dispatch(f"supacode://settings/{section}" if section else "supacode://settings", args)
+
+
+def cmd_settings_repo(args):
+    url = f"supacode://settings/repo/{repo_id(args)}"
+    dispatch(f"{url}/scripts" if args.scripts else url, args)
+
+
+# --------------------------------------------------------------------- parser
+
+
+def add_timeout(parser):
+    parser.add_argument(
+        "--timeout", type=int, default=DEFAULT_TIMEOUT,
+        help="Seconds to wait for the operation to complete (0 = wait indefinitely).")
+    return parser
+
+
+def add_background(parser):
+    parser.add_argument(
+        "--background", action="store_true",
+        help="Leave the sidebar selection and keyboard focus where they are.")
+    return parser
+
+
+def add_worktree(parser):
+    parser.add_argument("-w", "--worktree",
+                        help="Worktree ID. Defaults to $SUPACODE_WORKTREE_ID.")
+    return parser
+
+
+def add_tab(parser):
+    parser.add_argument("-t", "--tab", help="Tab ID. Defaults to $SUPACODE_TAB_ID.")
+    return parser
+
+
+def add_surface(parser):
+    parser.add_argument("-s", "--surface",
+                        help="Surface ID. Defaults to $SUPACODE_SURFACE_ID.")
+    return parser
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="supacode", description="Control Supacode from the command line.")
+    top = parser.add_subparsers(dest="command")
+
+    def sub(parent, name, handler, help_text):
+        child = parent.add_parser(name, help=help_text)
+        child.set_defaults(handler=handler)
+        return add_timeout(child)
+
+    add_timeout(parser)
+    parser.set_defaults(handler=cmd_open)
+
+    sub(top, "open", cmd_open, "Open or focus the Supacode window.")
+    sub(top, "socket", cmd_socket, "Show the bridge socket path and status.")
+    sub(top, "deeplink", cmd_deeplink,
+        "Send a raw supacode:// URL.").add_argument("url")
+
+    # worktree
+    worktree = top.add_parser("worktree", help="Manage worktrees.")
+    wt = worktree.add_subparsers(dest="subcommand")
+
+    listing = sub(wt, "list", cmd_worktree_list, "List worktrees.")
+    listing.add_argument("-f", "--focused", action="store_true",
+                         help="Print only the focused worktree.")
+    listing.add_argument("--status",
+                         help=f"Comma-separated: {'|'.join(WORKTREE_STATUSES)}.")
+    listing.add_argument("--not-archived", action="store_true",
+                         help="Print only worktrees that are not archived.")
+    listing.add_argument("--with-status", action="store_true",
+                         help="Append a tab-separated status column to each row.")
+
+    add_worktree(sub(wt, "status", cmd_worktree_status, "Read a worktree's status."))
+    add_worktree(sub(wt, "focus", cmd_worktree_focus, "Focus a worktree."))
+
+    for name, action, fallback, help_text in (
+        ("run", "run", "run", "Run a script."),
+        ("stop", "stop", "stop", "Stop a running script."),
+    ):
+        child = add_background(add_worktree(
+            sub(wt, name, script_action(action, fallback), help_text)))
+        child.add_argument("-c", "--script",
+                           help="Script UUID (see `worktree script list`).")
+
+    for name in ("archive", "unarchive", "delete", "pin", "unpin"):
+        add_background(add_worktree(
+            sub(wt, name, worktree_action(name), f"{name.capitalize()} the worktree.")))
+
+    appearance = add_worktree(sub(wt, "appearance", cmd_worktree_appearance,
+                                  "Read or update sidebar appearance overrides."))
+    appearance.add_argument("--title", help="Sidebar title override.")
+    appearance.add_argument("--color",
+                            help=f"{'|'.join(COLOR_NAMES)}, #RRGGBB[AA], or none.")
+
+    script = wt.add_parser("script", help="Inspect worktree scripts.")
+    add_worktree(sub(script.add_subparsers(dest="action"), "list",
+                     cmd_worktree_script_list, "List scripts."))
+
+    # tab
+    tab = top.add_parser("tab", help="Manage tabs.")
+    tb = tab.add_subparsers(dest="subcommand")
+
+    tab_listing = add_worktree(sub(tb, "list", cmd_tab_list, "List tabs."))
+    tab_listing.add_argument("-f", "--focused", action="store_true",
+                             help="Print only the focused tab.")
+
+    add_tab(add_worktree(sub(tb, "focus", cmd_tab_focus, "Focus a tab.")))
+
+    tab_new = add_background(add_worktree(sub(tb, "new", cmd_tab_new, "Open a tab.")))
+    tab_new.add_argument("-i", "--input", help="Command to run in the new tab.")
+    tab_new.add_argument("-n", "--id", help="UUID for the new tab.")
+    tab_new.add_argument("--title", help="Persistent title for the new tab.")
+
+    rename = add_tab(add_worktree(sub(tb, "rename", cmd_tab_rename, "Rename a tab.")))
+    rename.add_argument("--title", required=True,
+                        help="Persistent title. An empty title clears the override.")
+
+    add_background(add_tab(add_worktree(sub(tb, "close", cmd_tab_close, "Close a tab."))))
+
+    # surface
+    surface = top.add_parser("surface", help="Manage splits.")
+    sf = surface.add_subparsers(dest="subcommand")
+
+    sf_listing = add_tab(add_worktree(
+        sub(sf, "list", cmd_surface_list, "List surfaces.")))
+    sf_listing.add_argument("-f", "--focused", action="store_true",
+                            help="Print only the focused surface.")
+
+    sf_focus = add_surface(add_tab(add_worktree(
+        sub(sf, "focus", cmd_surface_focus, "Focus a surface."))))
+    sf_focus.add_argument("-i", "--input", help="Command to send to the surface.")
+
+    split = add_background(add_surface(add_tab(add_worktree(
+        sub(sf, "split", cmd_surface_split, "Split a surface.")))))
+    split.add_argument("-i", "--input", help="Command to run in the new surface.")
+    split.add_argument("-d", "--direction", help="horizontal (h) or vertical (v).")
+    split.add_argument("-n", "--id", help="UUID for the new surface.")
+
+    add_background(add_surface(add_tab(add_worktree(
+        sub(sf, "close", cmd_surface_close, "Close a surface.")))))
+
+    # repo
+    repo = top.add_parser("repo", help="Manage repositories.")
+    rp = repo.add_subparsers(dest="subcommand")
+
+    sub(rp, "list", cmd_repo_list, "List repositories.")
+    sub(rp, "open", cmd_repo_open, "Open a repository.").add_argument(
+        "path", help="Absolute path to the repository.")
+
+    new = add_background(sub(rp, "worktree-new", cmd_repo_worktree_new,
+                             "Create a worktree."))
+    new.add_argument("-r", "--repo", help="Repository ID. Defaults to $SUPACODE_REPO_ID.")
+    new.add_argument("--branch", help="Branch name for the new worktree.")
+    new.add_argument("--base", help="Base ref for the new worktree.")
+    new.add_argument("--upstream", help="Upstream branch the new branch tracks.")
+    new.add_argument("--no-upstream", action="store_true",
+                     help="Create the new branch with no upstream.")
+    new.add_argument("--fetch", action="store_true",
+                     help="Fetch origin before creating the worktree.")
+    new.add_argument("--name", help="Folder name. Defaults to the branch name.")
+    new.add_argument("--location", help="Parent directory for the worktree folder.")
+    new.add_argument("--pin", action="store_true",
+                     help="Pin the worktree as soon as creation starts.")
+
+    # settings
+    settings = top.add_parser("settings", help="Open settings.")
+    settings.set_defaults(handler=cmd_settings, section=None)
+    add_timeout(settings)
+    st = settings.add_subparsers(dest="subcommand")
+    for section in SETTINGS_SECTIONS:
+        child = sub(st, section, cmd_settings, f"Open {section} settings.")
+        child.set_defaults(section=section)
+
+    settings_repo = sub(st, "repo", cmd_settings_repo, "Open repository settings.")
+    settings_repo.add_argument("-r", "--repo",
+                               help="Repository ID. Defaults to $SUPACODE_REPO_ID.")
+    settings_repo.add_argument("scripts", nargs="?", const="scripts", default=None,
+                               choices=["scripts"], help="Open the scripts section.")
+
+    return parser
+
+
+def main(argv):
+    # `supacode supacode://...` and a bare URL both mean "dispatch this deeplink".
+    if len(argv) == 1 and argv[0].startswith("supacode://"):
+        argv = ["deeplink", argv[0]]
+
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    handler = getattr(args, "handler", None)
+    if handler is None:
+        parser.print_help(sys.stderr)
+        return 1
+    try:
+        handler(args)
+    except SupacodeError as err:
+        print(f"supacode: {err}", file=sys.stderr)
+        return 1
+    except BrokenPipeError:
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

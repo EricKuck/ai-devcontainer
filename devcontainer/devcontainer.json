@@ -10,16 +10,13 @@
   "postCreateCommand": ".devcontainer/post-create.sh",
   "remoteEnv": {
     "EDITOR": "vim",
-    "GH_TOKEN": "${localEnv:GH_TOKEN}",
-    "GRADLE_RO_DEP_CACHE": "/home/eric/.gradle-readonly",
-    "OPENCODE_PERMISSION": "{\"edit\":\"allow\",\"bash\":\"allow\",\"webfetch\":\"allow\"}"
+    "GRADLE_RO_DEP_CACHE": "/home/eric/.gradle-readonly"
   },
   "mounts": [
+    "source=${localEnv:HOME}/.clipboard-images,target=${localEnv:HOME}/.clipboard-images,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.aidev/activity,target=${localEnv:HOME}/.aidev/activity,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.claude,target=/home/eric/.claude,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.claude.json,target=/home/eric/.claude.json,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.config/opencode,target=/home/eric/.config/opencode,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.local/share/opencode,target=/home/eric/.local/share/opencode,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.codex,target=/home/eric/.codex,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.pi,target=/home/eric/.pi,type=bind,consistency=cached",
     "source=ai-devcontainer-gradle,target=/home/eric/.gradle,type=volume",
     "source=${localEnv:HOME}/.gradle/caches/modules-2,target=/home/eric/.gradle-readonly/modules-2,type=bind,readonly,consistency=cached",

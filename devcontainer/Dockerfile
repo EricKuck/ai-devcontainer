@@ -104,9 +104,6 @@ RUN set -eux; \
 # install harnesses
 RUN npm install -g \
     @anthropic-ai/claude-code \
-    opencode-ai \
-    @openai/codex \
-    @github/copilot \
     @earendil-works/pi-coding-agent
 
 # install rtk
@@ -117,6 +114,12 @@ RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/in
 # install Ghostty terminfo so TERM=xterm-ghostty is recognized over SSH
 COPY ghostty.terminfo /tmp/ghostty.terminfo
 RUN tic -x /tmp/ghostty.terminfo && rm /tmp/ghostty.terminfo
+
+# install the Supacode CLI stand-in. The real one is a macOS binary in the app
+# bundle; this speaks the same socket protocol to the reverse-forwarded socket
+# that aidev sets up as $SUPACODE_BRIDGE_SOCKET.
+COPY supacode /usr/local/bin/supacode
+RUN chmod 0755 /usr/local/bin/supacode
 
 # preserve TERM and TERMINFO through sudo so programs run under sudo
 # (e.g. sudo vim) still recognise xterm-ghostty
